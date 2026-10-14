@@ -1,0 +1,163 @@
+# EpicBook — Infrastructure Pipeline
+# Runs Terraform validate + plan on every push to main.
+# Apply is a separate manual-approval stage; it only runs when you
+# approve the deployment in the Azure DevOps "epicbook-production" environment.
+#
+# Required pipeline secret variables (set in Azure DevOps → Pipelines → Variables):
+#   ADMIN_SSH_PUBLIC_KEY   — contents of the VM SSH public key (mark as secret)
+#   DB_ADMIN_PASSWORD      — MySQL Flexible Server admin password (mark as secret)
+#
+# Required service connection:
+#   epicbook-azure-connection — Azure Resource Manager, Workload Identity Federation
+#   (see SETUP.md for creation steps)
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - README.md
+      - terraform.tfvars.example
+      - azure-pipelines.yml
+
+pool: SelfHostedPool
+
+variables:
+  TF_STATE_DIR: "$(Agent.HomeDirectory)/.epicbook-tfstate"
+  TF_STATE_PATH: "$(Agent.HomeDirectory)/.epicbook-tfstate/epicbook.tfstate"
+
+stages:
+
+  # -------------------------------------------------------------------------
+  # Stage 1: Validate & Plan
+  # Runs automatically. Fails fast on formatting errors, provider issues,
+  # or configuration mistakes. Publishes the plan file as a pipeline artifact
+  # for the Apply stage to consume.
+  # -------------------------------------------------------------------------
+  - stage: ValidatePlan
+    displayName: "Terraform Validate & Plan"
+    jobs:
+      - job: TerraformPlan
+        displayName: "fmt / init / validate / plan"
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: "Terraform fmt, init, validate, plan"
+            inputs:
+              azureSubscription: "epicbook-azure-connection"
+              scriptType: "bash"
+              scriptLocation: "inlineScript"
+              addSpnToEnvironment: true
+              inlineScript: |
+                set -euo pipefail
+
+                # Inject ARM credentials from the OIDC service connection
+                export ARM_CLIENT_ID="$servicePrincipalId"
+                export ARM_TENANT_ID="$tenantId"
+                export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+                export ARM_USE_OIDC=true
+                export ARM_OIDC_TOKEN="$idToken"
+
+                # Ensure the local state directory exists on the agent
+                mkdir -p "$(TF_STATE_DIR)"
+
+                echo "--- terraform fmt ---"
+                terraform fmt -check -recursive -diff
+
+                echo "--- terraform init ---"
+                terraform init \
+                  -backend-config="path=$(TF_STATE_PATH)" \
+                  -input=false
+
+                echo "--- terraform validate ---"
+                terraform validate
+
+                echo "--- terraform plan ---"
+                terraform plan \
+                  -var="admin_ssh_public_key=$(ADMIN_SSH_PUBLIC_KEY)" \
+                  -var="db_admin_password=$(DB_ADMIN_PASSWORD)" \
+                  -input=false \
+                  -out="$(Build.ArtifactStagingDirectory)/tfplan"
+
+          - publish: "$(Build.ArtifactStagingDirectory)/tfplan"
+            artifact: terraform-plan
+            displayName: "Publish plan artifact"
+
+  # -------------------------------------------------------------------------
+  # Stage 2: Apply
+  # Requires manual approval via the "epicbook-production" environment in
+  # Azure DevOps (Pipelines → Environments → epicbook-production → Approvals).
+  # Downloads and applies the exact plan from Stage 1 — no re-plan on apply.
+  # -------------------------------------------------------------------------
+  - stage: Apply
+    displayName: "Terraform Apply"
+    dependsOn: ValidatePlan
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: TerraformApply
+        displayName: "Apply approved plan"
+        environment: "epicbook-production"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - download: current
+                  artifact: terraform-plan
+                  displayName: "Download plan artifact"
+
+                - task: AzureCLI@2
+                  displayName: "Terraform init + apply"
+                  inputs:
+                    azureSubscription: "epicbook-azure-connection"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    addSpnToEnvironment: true
+                    inlineScript: |
+                      set -euo pipefail
+
+                      export ARM_CLIENT_ID="$servicePrincipalId"
+                      export ARM_TENANT_ID="$tenantId"
+                      export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+                      export ARM_USE_OIDC=true
+                      export ARM_OIDC_TOKEN="$idToken"
+
+                      mkdir -p "$(TF_STATE_DIR)"
+
+                      # Re-initialise with the same backend so providers are available
+                      terraform init \
+                        -backend-config="path=$(TF_STATE_PATH)" \
+                        -input=false
+
+                      terraform apply \
+                        -input=false \
+                        "$(Pipeline.Workspace)/terraform-plan/tfplan"
+
+                - task: AzureCLI@2
+                  displayName: "Print Terraform outputs"
+                  inputs:
+                    azureSubscription: "epicbook-azure-connection"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    addSpnToEnvironment: true
+                    inlineScript: |
+                      set -euo pipefail
+
+                      export ARM_CLIENT_ID="$servicePrincipalId"
+                      export ARM_TENANT_ID="$tenantId"
+                      export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+                      export ARM_USE_OIDC=true
+                      export ARM_OIDC_TOKEN="$idToken"
+
+                      terraform init \
+                        -backend-config="path=$(TF_STATE_PATH)" \
+                        -input=false -reconfigure 2>/dev/null || true
+
+                      echo "=== Infrastructure Outputs ==="
+                      terraform output
+
+                      echo ""
+                      echo "Copy vm_public_ip and mysql_hostname to the EpicBook-App pipeline variables."

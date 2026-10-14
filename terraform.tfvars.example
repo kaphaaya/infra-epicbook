@@ -1,0 +1,19 @@
+# Copy this file to terraform.tfvars (which is gitignored) and fill in the values.
+# Never commit terraform.tfvars — it contains the SSH public key and DB password.
+
+location       = "uksouth"
+project_prefix = "epicbook"
+
+vm_size        = "Standard_B2s"
+admin_username = "ubuntu"
+
+# Paste the contents of your SSH public key (e.g. ~/.ssh/epicbook_vm_key.pub)
+admin_ssh_public_key = "ssh-rsa AAAA..."
+
+mysql_sku        = "B_Standard_B1ms"
+mysql_version    = "8.0.21"
+mysql_storage_gb = 20
+
+db_admin_username = "epicbookadmin"
+db_admin_password = "CHANGE_ME_strong_password_here!"
+db_name           = "bookstore"

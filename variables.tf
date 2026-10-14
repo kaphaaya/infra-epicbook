@@ -11,9 +11,9 @@ variable "project_prefix" {
 }
 
 variable "vm_size" {
-  description = "Azure VM SKU for the application server."
+  description = "Azure VM SKU for the application server. Standard_B2s is absent from uksouth quota on this subscription; Standard_B2ms (2 vCPU, 8 GB) is the confirmed available alternative."
   type        = string
-  default     = "Standard_B2s"
+  default     = "Standard_B2ms"
 }
 
 variable "admin_username" {

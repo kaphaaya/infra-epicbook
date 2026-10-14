@@ -4,7 +4,7 @@
 location       = "uksouth"
 project_prefix = "epicbook"
 
-vm_size        = "Standard_B2s"
+vm_size        = "Standard_B2ms"
 admin_username = "ubuntu"
 
 # Paste the contents of your SSH public key (e.g. ~/.ssh/epicbook_vm_key.pub)

@@ -1,65 +1,70 @@
-variable "location" {
-  description = "Azure region where all resources will be created."
-  type        = string
-  default     = "uksouth"
-}
 
 variable "project_prefix" {
-  description = "Short prefix applied to every resource name. Change this if the MySQL server name conflicts globally."
+  description = "Prefix used to name EpicBook resources"
   type        = string
   default     = "epicbook"
 }
 
-variable "vm_size" {
-  description = "Azure VM SKU for the application server."
+variable "location" {
+  description = "Azure deployment region"
   type        = string
-  default     = "Standard_D2s_v3"
+  default     = "westus2"
+}
+
+variable "vm_size" {
+  description = "Azure Linux VM size"
+  type        = string
+  default     = "Standard_D2s_v7"
 }
 
 variable "admin_username" {
-  description = "OS-level admin username for the Linux VM. Used by Ansible to connect."
+  description = "Linux administrator username"
   type        = string
-  default     = "ubuntu"
+  default     = "azureuser"
 }
 
 variable "admin_ssh_public_key" {
-  description = "RSA public key (contents, not path) for SSH access to the VM. Store as a secret pipeline variable."
+  description = "Public SSH key for VM access"
   type        = string
-  sensitive   = true
-}
-
-variable "mysql_sku" {
-  description = "Azure MySQL Flexible Server SKU. Burstable B_Standard_B1ms is the cheapest tier."
-  type        = string
-  default     = "B_Standard_B1ms"
-}
-
-variable "mysql_version" {
-  description = "MySQL engine version."
-  type        = string
-  default     = "8.0.21"
-}
-
-variable "mysql_storage_gb" {
-  description = "Allocated storage for the MySQL Flexible Server in GB."
-  type        = number
-  default     = 20
 }
 
 variable "db_admin_username" {
-  description = "MySQL Flexible Server administrator login. Azure does not permit 'root', 'admin', or 'azure_superuser'."
+  description = "MySQL administrator username"
   type        = string
   default     = "epicbookadmin"
 }
 
 variable "db_admin_password" {
-  description = "MySQL Flexible Server administrator password. Store as a secret pipeline variable."
+  description = "MySQL administrator password"
   type        = string
   sensitive   = true
 }
 
-variable "db_name" {
-  description = "Name of the application database to create inside MySQL."
+variable "mysql_sku" {
+  description = "Azure MySQL Flexible Server SKU"
   type        = string
-  default     = "bookstore"
+  default     = "B_Standard_B1ms"
+}
+
+variable "mysql_version" {
+  description = "MySQL server version"
+  type        = string
+  default     = "8.0.21"
+}
+
+variable "mysql_storage_gb" {
+  description = "MySQL storage in GB"
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.mysql_storage_gb >= 20
+    error_message = "Azure MySQL Flexible Server storage must be at least 20 GB."
+  }
+}
+
+variable "db_name" {
+  description = "EpicBook application database name"
+  type        = string
+  default     = "epicbook"
 }

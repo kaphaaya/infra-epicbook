@@ -19,7 +19,6 @@ trigger:
     exclude:
       - README.md
       - terraform.tfvars.example
-      - azure-pipelines.yml
 
 pool: SelfHostedPool
 
@@ -149,7 +148,7 @@ stages:
                         "$(Pipeline.Workspace)/terraform-plan/tfplan"
 
                 - task: AzureCLI@2
-                  displayName: "Print Terraform outputs"
+                  displayName: "Print required Terraform outputs"
                   inputs:
                     azureSubscription: "epicbook-azure-connection"
                     scriptType: "bash"
@@ -168,8 +167,15 @@ stages:
                         -backend-config="path=$(TF_STATE_PATH)" \
                         -input=false -reconfigure 2>/dev/null || true
 
-                      echo "=== Infrastructure Outputs ==="
-                      terraform output
-
+                      echo "=== Required Infrastructure Outputs ==="
                       echo ""
-                      echo "Copy vm_public_ip and mysql_hostname to the EpicBook-App pipeline variables."
+                      echo "app_public_ip        = $(terraform output -raw app_public_ip)"
+                      echo "backend_ansible_host = $(terraform output -raw backend_ansible_host)"
+                      echo "backend_private_ip   = $(terraform output -raw backend_private_ip)"
+                      echo "mysql_fqdn           = $(terraform output -raw mysql_fqdn)"
+                      echo ""
+                      echo "--- Supplementary ---"
+                      echo "resource_group_name  = $(terraform output -raw resource_group_name)"
+                      echo "vm_admin_username    = $(terraform output -raw vm_admin_username)"
+                      echo ""
+                      echo "Copy app_public_ip and mysql_fqdn to the EpicBook-App pipeline variables."

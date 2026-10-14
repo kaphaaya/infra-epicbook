@@ -1,3 +1,4 @@
+
 locals {
   common_tags = {
     Project     = "EpicBook"
@@ -6,18 +7,14 @@ locals {
   }
 }
 
-# ---------------------------------------------------------------------------
 # Resource Group
-# ---------------------------------------------------------------------------
 resource "azurerm_resource_group" "epicbook" {
   name     = "${var.project_prefix}-rg"
   location = var.location
   tags     = local.common_tags
 }
 
-# ---------------------------------------------------------------------------
-# Networking — VNet, Subnets, NSG
-# ---------------------------------------------------------------------------
+# Networking
 resource "azurerm_virtual_network" "vnet" {
   name                = "${var.project_prefix}-vnet"
   location            = azurerm_resource_group.epicbook.location
@@ -33,9 +30,6 @@ resource "azurerm_subnet" "vm" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# NSG — only ports 22 (SSH for Ansible) and 80 (HTTP via Nginx) are open to
-# the internet. The Node.js process binds to 8080 internally; Nginx proxies it.
-# Tighten the SSH source prefix in production to your CI agent's static IP.
 resource "azurerm_network_security_group" "vm_nsg" {
   name                = "${var.project_prefix}-vm-nsg"
   location            = azurerm_resource_group.epicbook.location
@@ -73,9 +67,7 @@ resource "azurerm_subnet_network_security_group_association" "vm_nsg" {
   network_security_group_id = azurerm_network_security_group.vm_nsg.id
 }
 
-# ---------------------------------------------------------------------------
-# Public IP and NIC for the VM
-# ---------------------------------------------------------------------------
+# Public IP
 resource "azurerm_public_ip" "vm_pip" {
   name                = "${var.project_prefix}-vm-pip"
   location            = azurerm_resource_group.epicbook.location
@@ -85,6 +77,7 @@ resource "azurerm_public_ip" "vm_pip" {
   tags                = local.common_tags
 }
 
+# Network Interface
 resource "azurerm_network_interface" "vm_nic" {
   name                = "${var.project_prefix}-vm-nic"
   location            = azurerm_resource_group.epicbook.location
@@ -100,9 +93,7 @@ resource "azurerm_network_interface" "vm_nic" {
   tags = local.common_tags
 }
 
-# ---------------------------------------------------------------------------
-# Linux Virtual Machine (Ubuntu 22.04 LTS Gen2, SSH key auth)
-# ---------------------------------------------------------------------------
+# Linux Virtual Machine
 resource "azurerm_linux_virtual_machine" "vm" {
   name                            = "${var.project_prefix}-vm"
   location                        = azurerm_resource_group.epicbook.location
@@ -111,7 +102,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
   admin_username                  = var.admin_username
   disable_password_authentication = true
 
-  network_interface_ids = [azurerm_network_interface.vm_nic.id]
+  network_interface_ids = [
+    azurerm_network_interface.vm_nic.id
+  ]
 
   admin_ssh_key {
     username   = var.admin_username
@@ -134,9 +127,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   tags = local.common_tags
 }
 
-# ---------------------------------------------------------------------------
-# Azure Database for MySQL Flexible Server (public access, Burstable tier)
-# ---------------------------------------------------------------------------
+# MySQL Flexible Server
 resource "azurerm_mysql_flexible_server" "mysql" {
   name                = "${var.project_prefix}-mysql-server"
   location            = azurerm_resource_group.epicbook.location
@@ -159,6 +150,7 @@ resource "azurerm_mysql_flexible_server" "mysql" {
   tags = local.common_tags
 }
 
+# EpicBook Database
 resource "azurerm_mysql_flexible_database" "bookstore" {
   name                = var.db_name
   resource_group_name = azurerm_resource_group.epicbook.name
@@ -167,8 +159,7 @@ resource "azurerm_mysql_flexible_database" "bookstore" {
   collation           = "utf8mb4_unicode_ci"
 }
 
-# Allow only the application VM's public IP to reach MySQL.
-# Terraform resolves the dependency automatically — no circular reference.
+# Allow MySQL access from the VM public IP
 resource "azurerm_mysql_flexible_server_firewall_rule" "allow_vm" {
   name                = "allow-epicbook-vm"
   resource_group_name = azurerm_resource_group.epicbook.name
@@ -177,9 +168,8 @@ resource "azurerm_mysql_flexible_server_firewall_rule" "allow_vm" {
   end_ip_address      = azurerm_public_ip.vm_pip.ip_address
 }
 
-# Disable SSL enforcement so the Node.js app can connect without
-# certificate handling. Re-enable and add SSL params to JAWSDB_URL
-# for hardened production deployments.
+# Disable enforced TLS to match the existing application connection setup.
+# For production, prefer TLS with certificate verification.
 resource "azurerm_mysql_flexible_server_configuration" "ssl_off" {
   name                = "require_secure_transport"
   resource_group_name = azurerm_resource_group.epicbook.name
